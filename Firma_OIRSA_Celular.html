@@ -67,41 +67,59 @@ function toggleSecondPhone(checked) {
   document.getElementById('status').textContent = '';
 }
 
-// Implementación para páginas HTTPS: no modifica la presentación.
-async function copiarFirmaWeb() {
+// Copia compatible: recupera la selección nativa que usaban las firmas originales.
+// IMPORTANTE: las seis imágenes permanecen incrustadas; no convertirlas a URL.
+async function copiarFirmaWeb(){
  const estado=document.getElementById('status');
  const tabla=document.getElementById('firma');
+ const ios=/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
  const copia=tabla.cloneNode(true);
  copia.querySelectorAll('[contenteditable]').forEach(n=>n.removeAttribute('contenteditable'));
- // Al copiar, cambiamos imágenes incrustadas por las URL públicas
- // de los mismos PNG, para mejorar la compatibilidad con Outlook.
- const assetsPorLongitud={"154": "linea_vertical.png", "4470": "franja.png", "8402": "icono_celular.png", "9094": "icono_web.png", "9826": "icono_telefono.png", "253782": "logo.png"};
- copia.querySelectorAll('img').forEach(img=>{
-  const original=img.getAttribute('src')||'';
-  const recurso=assetsPorLongitud[original.length];
-  if(recurso) img.setAttribute('src',new URL('assets/'+recurso,window.location.href).href);
- });
  const html='<html><head><meta charset="utf-8"></head><body>'+copia.outerHTML+'</body></html>';
  const texto=tabla.innerText||tabla.textContent||'';
- if(navigator.clipboard && window.ClipboardItem && window.isSecureContext){
-  try{
+ function seleccionarFirma(){
+   const rango=document.createRange();
+   rango.selectNode(tabla);
+   const seleccion=window.getSelection();
+   seleccion.removeAllRanges();
+   seleccion.addRange(rango);
+ }
+ async function escribirHTML(){
+   if(!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem || !window.isSecureContext) return false;
    const item=new ClipboardItem({
-    'text/html':new Blob([html],{type:'text/html'}),
-    'text/plain':new Blob([texto],{type:'text/plain'})
+     'text/html':new Blob([html],{type:'text/html'}),
+     'text/plain':new Blob([texto],{type:'text/plain'})
    });
    await navigator.clipboard.write([item]);
-   estado.textContent='Firma copiada. Comprueba cómo se pega en Outlook.';
-   return;
-  }catch(error){
-   console.warn('Portapapeles enriquecido no disponible:',error);
-  }
+   return true;
  }
- // Respaldo para navegadores que solo permiten la copia con selección.
- const seleccion=window.getSelection(); const rango=document.createRange();
- rango.selectNode(tabla); seleccion.removeAllRanges(); seleccion.addRange(rango);
+ // En Safari, probar primero el portapapeles enriquecido desde HTTPS.
+ if(ios){
+   try{
+     if(await escribirHTML()){
+       estado.textContent='Firma copiada. Pegala en Outlook y comprobá las imágenes.';
+       return;
+     }
+   }catch(error){console.warn('Safari no autorizó la copia HTML:',error);}
+ }
+ // En Android y computadoras se recupera exactamente la selección HTML
+ // del archivo original, que conserva las imágenes incrustadas.
+ seleccionarFirma();
  let copio=false;
- try{ copio=document.execCommand('copy'); }catch(error){}
- estado.textContent=copio?'Copia solicitada. Verifica el resultado en Outlook.':'Safari no autorizó la copia. Mantén presionada únicamente la firma y usa Copiar.';
+ try{copio=document.execCommand('copy');}catch(error){}
+ if(copio){
+   estado.textContent='Firma copiada. Pegala en Outlook.';
+   return;
+ }
+ // Respaldo si el navegador no permite execCommand.
+ try{
+   if(await escribirHTML()){
+     estado.textContent='Firma copiada. Pegala en Outlook y comprobá las imágenes.';
+     return;
+   }
+ }catch(error){console.warn('No se autorizó la copia HTML:',error);}
+ estado.textContent='La firma está seleccionada: mantené presionado sobre ella y elegí Copiar.';
 }
 function copySig(){return copiarFirmaWeb();}
 function copySignature(){return copiarFirmaWeb();}

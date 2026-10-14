@@ -126,11 +126,29 @@ async function pngAltaResolucion(blob,escala){
   }
   return insertado?new Blob(partes,{type:'image/png'}):blob;
 }
+// Conservamos la captura HD original y reducimos solo el PNG final,
+ // sin alterar el tamaño del editor ni las imágenes incrustadas.
+function ajustarTamanoImagen(canvas){
+  const proporcion=0.90;
+  const resultado=document.createElement('canvas');
+  resultado.width=Math.max(1,Math.round(canvas.width*proporcion));
+  resultado.height=Math.max(1,Math.round(canvas.height*proporcion));
+  const ctx=resultado.getContext('2d',{alpha:false});
+  if(!ctx)throw new Error('No se pudo preparar la imagen final.');
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.fillStyle='#FFFFFF';
+  ctx.fillRect(0,0,resultado.width,resultado.height);
+  ctx.drawImage(canvas,0,0,resultado.width,resultado.height);
+  return resultado;
+}
 async function imagenFirmaBlob(){
-  const canvas=await lienzoFirma();
+  const lienzoHD=await lienzoFirma();
+  const canvas=ajustarTamanoImagen(lienzoHD);
   const blob=await new Promise((resolve,reject)=>{
     canvas.toBlob(b=>b ? resolve(b) : reject(new Error('No se generó el PNG')),'image/png');
   });
+  // Conservamos la densidad original para sugerir un tamaño físico menor.
   return pngAltaResolucion(blob,3);
 }
 async function copiarFirmaWeb(){

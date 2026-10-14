@@ -16,7 +16,7 @@ button{border:0;border-radius:6px;background:#223a67;color:white;padding:9px 14p
 .phone-option input{width:16px;height:16px;margin:0;accent-color:#789B4C;cursor:pointer}
 .phone-help{font-size:12px;line-height:1.4;color:#54657a;margin:0 0 12px}
 </style></head>
-<body><main class="container"><section class="panel"><h1>Firma OIRSA · Celular</h1><p>El mismo diseño horizontal de la laptop, reducido para teléfono. Pulsa sobre el texto para editarlo.</p><label class="phone-option"><input checked="" id="includeSecondPhone" onchange="toggleSecondPhone(this.checked)" type="checkbox"/> Incluir segundo teléfono (ícono y número)</label><div class="phone-help">Desmarcá esta casilla para dejar únicamente el primer número. La firma se copiará sin el segundo ícono ni su número.</div><button id="copy" onclick="copySignature()" type="button">Copiar firma</button><span id="status"></span></section>
+<body><main class="container"><section class="panel"><h1>Firma OIRSA · Celular</h1><p>El mismo diseño horizontal de la laptop, reducido para teléfono. Pulsa sobre el texto para editarlo.</p><label class="phone-option"><input checked="" id="includeSecondPhone" onchange="toggleSecondPhone(this.checked)" type="checkbox"/> Incluir segundo teléfono (ícono y número)</label><div class="phone-help">Desmarcá esta casilla para dejar únicamente el primer número. La firma se copiará sin el segundo ícono ni su número.</div><button id="copy" onclick="copySignature()" type="button">Copiar como imagen</button> <button type="button" onclick="descargarFirmaPNG()" style="margin-left:6px;">Descargar PNG</button><span id="status"></span></section>
 <section class="panel preview">
 <table bgcolor="#FFFFFF" border="0" cellpadding="0" cellspacing="0" id="firma" role="presentation" style="background-color:#FFFFFF !important;width:360px;min-width:360px;max-width:360px;table-layout:fixed;border-collapse:collapse;border-spacing:0;text-align:left;margin:0;margin-left:0;margin-right:0;background:#fff;font-family:Montserrat,Arial,Helvetica,sans-serif;" width="360">
 <tr>
@@ -67,61 +67,73 @@ function toggleSecondPhone(checked) {
   document.getElementById('status').textContent = '';
 }
 
-// Copia compatible: recupera la selección nativa que usaban las firmas originales.
-// IMPORTANTE: las seis imágenes permanecen incrustadas; no convertirlas a URL.
+
+/* Copia de la firma como imagen: fondo blanco incrustado en el PNG.
+   Se mantiene la edición de nombre, cargo y teléfonos ANTES de copiar. */
+function estadoFirma(mensaje){
+  const etiqueta=document.getElementById('status');
+  if(etiqueta) etiqueta.textContent=mensaje;
+}
+async function lienzoFirma(){
+  if(typeof window.html2canvas!=='function'){
+    throw new Error('No se pudo cargar el generador de imágenes. Revisá la conexión a Internet.');
+  }
+  // El nodo exacto de la firma, no el editor ni sus botones.
+  const tabla=document.getElementById('firma');
+  return window.html2canvas(tabla,{
+    backgroundColor:'#FFFFFF',
+    scale:1,
+    useCORS:true,
+    allowTaint:false,
+    logging:false,
+    imageTimeout:15000,
+    scrollX:0,
+    scrollY:-window.scrollY
+  });
+}
+async function imagenFirmaBlob(){
+  const canvas=await lienzoFirma();
+  return new Promise((resolve,reject)=>{
+    canvas.toBlob(blob=>blob ? resolve(blob) : reject(new Error('No se generó el PNG')),'image/png');
+  });
+}
 async function copiarFirmaWeb(){
- const estado=document.getElementById('status');
- const tabla=document.getElementById('firma');
- const ios=/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-   (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
- const copia=tabla.cloneNode(true);
- copia.querySelectorAll('[contenteditable]').forEach(n=>n.removeAttribute('contenteditable'));
- const html='<html><head><meta charset="utf-8"></head><body>'+copia.outerHTML+'</body></html>';
- const texto=tabla.innerText||tabla.textContent||'';
- function seleccionarFirma(){
-   const rango=document.createRange();
-   rango.selectNode(tabla);
-   const seleccion=window.getSelection();
-   seleccion.removeAllRanges();
-   seleccion.addRange(rango);
- }
- async function escribirHTML(){
-   if(!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem || !window.isSecureContext) return false;
-   const item=new ClipboardItem({
-     'text/html':new Blob([html],{type:'text/html'}),
-     'text/plain':new Blob([texto],{type:'text/plain'})
-   });
-   await navigator.clipboard.write([item]);
-   return true;
- }
- // En Safari, probar primero el portapapeles enriquecido desde HTTPS.
- if(ios){
-   try{
-     if(await escribirHTML()){
-       estado.textContent='Firma copiada. Pegala en Outlook y comprobá las imágenes.';
-       return;
-     }
-   }catch(error){console.warn('Safari no autorizó la copia HTML:',error);}
- }
- // En Android y computadoras se recupera exactamente la selección HTML
- // del archivo original, que conserva las imágenes incrustadas.
- seleccionarFirma();
- let copio=false;
- try{copio=document.execCommand('copy');}catch(error){}
- if(copio){
-   estado.textContent='Firma copiada. Pegala en Outlook.';
-   return;
- }
- // Respaldo si el navegador no permite execCommand.
- try{
-   if(await escribirHTML()){
-     estado.textContent='Firma copiada. Pegala en Outlook y comprobá las imágenes.';
-     return;
-   }
- }catch(error){console.warn('No se autorizó la copia HTML:',error);}
- estado.textContent='La firma está seleccionada: mantené presionado sobre ella y elegí Copiar.';
+  estadoFirma('Preparando imagen con fondo blanco…');
+  try{
+    if(!navigator.clipboard || typeof navigator.clipboard.write!=='function' || !window.ClipboardItem){
+      throw new Error('Este navegador no permite copiar PNG; usá Descargar PNG.');
+    }
+    // Pasar la promesa directamente es necesario para conservar el gesto
+    // de usuario en navegadores como Safari iOS.
+    const promesaPNG=imagenFirmaBlob();
+    await navigator.clipboard.write([new ClipboardItem({'image/png':promesaPNG})]);
+    estadoFirma('Firma copiada como imagen PNG. Pegala en Outlook.');
+  }catch(error){
+    console.error('No se pudo copiar la imagen:',error);
+    estadoFirma('No se pudo copiar la imagen. Usá «Descargar PNG» e insertala en Outlook.');
+  }
+}
+async function descargarFirmaPNG(){
+  estadoFirma('Generando archivo PNG…');
+  try{
+    const blob=await imagenFirmaBlob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='Firma_OIRSA.png';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Se libera en la próxima interacción en vez de inmediatamente para Safari.
+    window.addEventListener('pagehide',()=>URL.revokeObjectURL(url),{once:true});
+    estadoFirma('PNG generado. Insertalo como imagen en la firma de Outlook.');
+  }catch(error){
+    console.error('No se pudo descargar el PNG:',error);
+    estadoFirma('No se pudo generar el PNG. Revisá la conexión e intentá otra vez.');
+  }
 }
 function copySig(){return copiarFirmaWeb();}
 function copySignature(){return copiarFirmaWeb();}
-
-</script></body></html>
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" onerror="this.onerror=null;this.src=\'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js\'"></script>
+</body></html>

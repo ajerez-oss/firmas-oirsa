@@ -81,7 +81,7 @@ async function lienzoFirma(){
   const tabla=document.getElementById('firma');
   return window.html2canvas(tabla,{
     backgroundColor:'#FFFFFF',
-    scale:1,
+    scale:3, // Tres veces la resolución original: texto y logotipo más nítidos.
     useCORS:true,
     allowTaint:false,
     logging:false,
@@ -90,11 +90,48 @@ async function lienzoFirma(){
     scrollY:-window.scrollY
   });
 }
+// Los píxeles son 3× para conservar detalle; el PNG declara 288 DPI para
+// que los editores que respetan la resolución física mantengan el ancho original.
+async function pngAltaResolucion(blob,escala){
+  const data=new Uint8Array(await blob.arrayBuffer());
+  if(data.length<40 || data[0]!==137 || data[1]!==80 || data[2]!==78 || data[3]!==71) return blob;
+  const dv=new DataView(data.buffer,data.byteOffset,data.byteLength);
+  const partes=[data.subarray(0,8)];
+  const tipo=(pos)=>String.fromCharCode(data[pos+4],data[pos+5],data[pos+6],data[pos+7]);
+  function generarDPI(){
+    const chunk=new Uint8Array(21);
+    const v=new DataView(chunk.buffer);
+    v.setUint32(0,9);chunk.set([112,72,89,115],4);
+    const pixelsPorMetro=Math.round((96*escala)/0.0254);
+    v.setUint32(8,pixelsPorMetro);v.setUint32(12,pixelsPorMetro);
+    chunk[16]=1;
+    let crc=0xffffffff;
+    for(let i=4;i<17;i++){
+      crc^=chunk[i];
+      for(let n=0;n<8;n++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);
+    }
+    v.setUint32(17,(crc^0xffffffff)>>>0);
+    return chunk;
+  }
+  let offset=8,insertado=false;
+  while(offset+12<=data.length){
+    const tam=dv.getUint32(offset);
+    const fin=offset+tam+12;
+    if(fin>data.length) return blob;
+    const t=tipo(offset);
+    if(t!=='pHYs')partes.push(data.subarray(offset,fin));
+    if(t==='IHDR'&&!insertado){partes.push(generarDPI());insertado=true;}
+    offset=fin;
+    if(t==='IEND')break;
+  }
+  return insertado?new Blob(partes,{type:'image/png'}):blob;
+}
 async function imagenFirmaBlob(){
   const canvas=await lienzoFirma();
-  return new Promise((resolve,reject)=>{
-    canvas.toBlob(blob=>blob ? resolve(blob) : reject(new Error('No se generó el PNG')),'image/png');
+  const blob=await new Promise((resolve,reject)=>{
+    canvas.toBlob(b=>b ? resolve(b) : reject(new Error('No se generó el PNG')),'image/png');
   });
+  return pngAltaResolucion(blob,3);
 }
 async function copiarFirmaWeb(){
   estadoFirma('Preparando imagen con fondo blanco…');
